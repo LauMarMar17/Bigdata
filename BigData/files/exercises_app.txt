@@ -1,0 +1,19 @@
+Excercise 1: Add the phone prefix to the numbers using as reference the International Calling Codes. Use a Broadcast Variable.
+
+input_data = [("Simón","Bolivar","VEN","489 895 965"),
+    ("Fidel","Castro","CU","956 268 348"),
+    ("Jose","Doroteo","MEX","985 621 444"),
+    ("Ernesto","Guevara","AR","895 325 481"),
+    ("Hugo","Chávez","VE","489 895 965"),
+    ("Camilo","Cienfuegos","CUB","956 268 348"),
+    ("Andrés Manuel","López","ME","985 621 444"),
+    ("Juan Domingo","Perón","ARG","985 621 444"),
+  ]
+
+Excercise 2: Count the number of times the word 'to' appears in a line and the number of lines in the bible.txt file. Use Accumulators.
+
+Excercise 3: Write the RDD containing the pagecounts dataset. Write the RDD but with only 2 partitions. Use Repartition.
+
+Excercise 4: Check the differences in computation time when using cache method on an RDD. Read pagecount files and count lines with and without using cache method. Show the time differences. Use Cache.
+
+:)
