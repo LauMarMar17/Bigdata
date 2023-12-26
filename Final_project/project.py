@@ -1,3 +1,10 @@
+"""
+This script loads the data from the data folder, processes it and creates a linear regression model using pyspark.
+The model is evaluated using MAE, MSE, RMSE and R2.
+
+Usage:
+    python project.py -d <path_to_data_folder>
+"""
 from pyspark.sql import *
 from pyspark.sql.functions import *
 from pyspark import SparkContext
@@ -29,7 +36,7 @@ def load_data(path):
     dfs = []
     for file in files:
         # read them into df
-        df = spark.read.csv(path + files[0], header=True, sep=",")
+        df = spark.read.csv(path + "/" + files[0], header=True, sep=",")
         dfs.append(df)
 
     # Merge all dataframes into one
@@ -271,15 +278,22 @@ def validate_model(model, test_data):
 #############################################
 
 @click.command()
-@click.option('--data_path', 
-              default='Final_project/data/', 
+@click.option('--data_path',
+              '-d',
+              default=None, 
               help='Path to the data folder')
 
 def main(data_path):
-    click.echo('Loading data from {}'.format(data_path))
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    if data_path is None:
+        data_folder = os.path.join(script_dir, "data")
+    else:
+        data_folder = data_path
+        click.echo('Loading data from {}'.format(data_folder))
     
     # Load data into pyspark dataframe
-    df_pyspark = load_data(data_path)
+    df_pyspark = load_data(data_folder)
 
     print('Initial number of rows: ', df_pyspark.count())
     print('initial number of columns: ', len(df_pyspark.columns))
