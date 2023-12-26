@@ -2,13 +2,13 @@ from pyspark.sql import *
 from pyspark.sql.functions import *
 from pyspark import SparkContext
 from functools import reduce
+from pyspark.conf import SparkConf
 from pyspark.ml.feature import Normalizer, StringIndexer, VectorAssembler
 from pyspark.ml import Pipeline
 from pyspark.ml.regression import LinearRegression
 from pyspark.ml.evaluation import RegressionEvaluator
-import click 
 
-import bz2
+import click 
 import os
 
 ## Functions ######################################
@@ -16,28 +16,37 @@ import os
 # Load data into pyspark dataframe
 def load_data(path):
     # Initialize SparkSession
-    sc = SparkContext("local", "ComercialFlights")
+    conf = SparkConf().set("spark.driver.memory", "4g").set("spark.executor.memory", "4g").set("loglevel", "ERROR")
     spark = SparkSession.builder \
-                .appName("First Session") \
+                .appName("ComercialFlights") \
                 .master("local[*]") \
+                .config(conf=conf) \
                 .getOrCreate()
 
-    sc.setLogLevel("ERROR")
+    # Read data
+    files = os.listdir(path)
+    files = [file for file in files if file.endswith('.bz2')] # filter bz2 files as this is how we download the data
+    dfs = []
+    for file in files:
+        # read them into df
+        df = spark.read.csv(path + files[0], header=True, sep=",")
+        dfs.append(df)
 
-    # read all csv files in the directory to pyspark dataframe
-    csv_files = os.listdir(path)
-    df_pyspark =[]
-    for file in csv_files:
-        file_path = path + file
-        df = spark.read.csv(file_path, header=True, inferSchema=True)
-        df_pyspark.append(df)
-
-    # merge all dataframes into one
-    df_pyspark = reduce(DataFrame.unionAll, df_pyspark)
-    return df_pyspark
+    # Merge all dataframes into one
+    one_df = reduce(DataFrame.unionAll, dfs)
+    return one_df
 
 # Rename columns
 def edit_column_names(df):
+    """
+    Edit column names to lowercase and replace spaces with underscores.
+    
+    Param:
+    - df: spark dataframe
+    
+    Return:
+    - df: spark dataframe with edited column names
+    """
     df =  df.withColumnRenamed('DayofMonth','day_of_month').\
                 withColumnRenamed('DayOfWeek','day_of_week').\
                 withColumnRenamed('DepTime','actual_departure_time').\
@@ -66,14 +75,40 @@ def edit_column_names(df):
 
 # String values to float:
 def string_to_float(df):
+    """ 
+    Convert some columns from string to float.
+    
+    Param:
+    - df: spark dataframe
+    
+    Return:
+    - df: spark dataframe with some columns converted to float
+    """
+    df = df.withColumn('year', col('year').cast('float'))
+    df = df.withColumn('month', col('month').cast('float'))
+    df = df.withColumn('day_of_month', col('day_of_month').cast('float'))
+    df = df.withColumn('day_of_week', col('day_of_week').cast('float'))
     df = df.withColumn('arrival_delay', col('arrival_delay').cast('float'))
     df = df.withColumn('departure_delay', col('departure_delay').cast('float'))
     df = df.withColumn('taxi_out', col('taxi_out').cast('float'))
     df = df.withColumn('distance', col('distance').cast('float'))
+    df = df.withColumn('cancelled', col('cancelled').cast('float'))
+    df = df.withColumn('flight_number', col('flight_number').cast('float'))
     return df
 
 # Encode categorical features:
 def encode_categorical_features(df):
+    """ 
+    Encode categorical features using StringIndexer. 
+    The output is a new column with the index of the category (0, 1, 2, ...)
+    
+    Param:
+    - df: spark dataframe
+    
+    Return:
+    - df: spark dataframe with categorical features encoded
+    """
+    
     indexer = StringIndexer(inputCols=['airline_code', 'origin', 'dest', 'cancellation_code', 'plane_number'],
                             outputCols=['airline_index', 'origin_index', 'dest_index', 'cancellation_index', 'plane_index'])
     
@@ -82,8 +117,16 @@ def encode_categorical_features(df):
 
 # Convert time to minutes:
 def convert_time_to_minutes(df):
-    # for actual_departure_time, scheduled_departure_time, scheduled_arrival_time, scheduled_flight_time transform to minutes
-    # take the first two digits and multiply by 60 and add the last two digits
+    """ 
+    Convert time to minutes. Creates new columns with the time in minutes and drop the original ones.
+    To compute it we take the first two digits and multiply by 60 and add the last two digits.
+    This is applied to: actual_departure_time, scheduled_departure_time, scheduled_arrival_time, scheduled_flight_time
+    Param:
+    - df: spark dataframe
+    
+    Return:
+    - df: spark dataframe with new columns with time in minutes
+    """
     df = df.withColumn('actual_departure_hour', (col('actual_departure_time') / 100).cast('int'))
     df = df.withColumn('scheduled_departure_hour', (col('scheduled_departure_time') / 100).cast('int'))
     df = df.withColumn('scheduled_arrival_hour', (col('scheduled_arrival_time') / 100).cast('int'))
@@ -94,15 +137,23 @@ def convert_time_to_minutes(df):
     df = df.withColumn('scheduled_arrival_time_mins', (col('scheduled_arrival_hour') * 60) + (col('scheduled_arrival_time') % 100))
     df = df.withColumn('scheduled_flight_time_mins', (col('scheduled_flight_hour') * 60) + (col('scheduled_flight_time') % 100))
     
-    # drop actual_departure_hour, scheduled_departure_hour, scheduled_arrival_hour, scheduled_flight_hour
-    
     df = df.drop('actual_departure_hour', 'scheduled_departure_hour', 'scheduled_arrival_hour', 'scheduled_flight_hour')
     
     return df
 
 # Keep only relevant columns:
 def my_df(df):
-    # select columns
+    """
+    Select columns to keep in the dataframe. 
+    Some columns are dropped as asked in the project instructions.
+    Others are dropped because they are not useful for the model since they are derived from the original ones.
+    
+    Params: 
+    - df: spark dataframe
+    
+    Return:
+    - df: spark dataframe with selected columns
+    """
     df = df.select('year', 'month', 'day_of_month', 'day_of_week', 'actual_departure_time_mins',
  					'scheduled_departure_time_mins', 'scheduled_arrival_time_mins', 'airline_index',
  					'flight_number', 'scheduled_flight_time_mins', 'departure_delay',
@@ -112,34 +163,77 @@ def my_df(df):
 
 # Handle null values:
 def drop_nulls(df):
-	# remove rows in arrival_delay where arrival_delay is null
-	df = df.filter(df.arrival_delay.isNotNull())
-	# remove rows in scheduled_flight_time_mins where departure_delay is null
-	df = df.filter(df.scheduled_flight_time_mins.isNotNull())
-	# remove rows in distance where distance is null
-	df = df.filter(df.distance.isNotNull())
-	return df
+    """ 
+    Drop rows with null values in the following columns: arrival_delay, scheduled_flight_time_mins, distance.
+
+    Param:
+    - df: spark dataframe
+
+    Return:
+    - df: spark dataframe with rows with null values dropped
+    """
+    # remove rows in arrival_delay where arrival_delay is null
+    df = df.filter(df.arrival_delay.isNotNull())
+    # remove rows in scheduled_flight_time_mins where departure_delay is null
+    df = df.filter(df.scheduled_flight_time_mins.isNotNull())
+    # remove rows in distance where distance is null
+    df = df.filter(df.distance.isNotNull())
+    return df
 
 # Drop cancelled flights:
 def drop_cancelled(df):
+    """ 
+    Drop rows with cancelled flights.
+    
+    Param:
+    - df: spark dataframe
+    
+    Return:
+    - df: spark dataframe with cancelled flights dropped
+    """
     df = df.filter(df.cancelled == 0)
     return df
 
-
 # standarize df
 def standarize_dataframe(df):
+    """ 
+    Apply all the functions defined above to the dataframe.
+    
+    Param:
+    - df: spark dataframe
+    
+    Return:
+    - df: spark dataframe with all the functions applied
+    """
     temp = edit_column_names(df)
     temp = string_to_float(temp)
     temp = encode_categorical_features(temp)
     temp = convert_time_to_minutes(temp)
+    # Next 2 functions were defined after evaluating null values and whether
+    # to drop the entire variable or drop the rows with null values.
     temp = my_df(temp)
     temp = drop_nulls(temp)
+    
     temp = drop_cancelled(temp)
 
     return temp
 
 # Create model
 def create_model(df, my_features):
+    """ 
+    Create a linear regression model. 
+        First, the data is split into train and test.
+        Then, the features are vectorized and normalized.
+        Finally, the model is created and fitted.
+    
+    Params:
+    - df: spark dataframe
+    - my_features: list of features to use in the model
+    
+    Return:
+    - train: train: train data, test: test data, model: lr model
+    """
+    
     # Train-test split
     train, test = df.randomSplit([0.7, 0.3], seed=42)
     # Vectorize features
@@ -178,7 +272,7 @@ def validate_model(model, test_data):
 
 @click.command()
 @click.option('--data_path', 
-              default='BigData/data/project_data/', 
+              default='Final_project/data/', 
               help='Path to the data folder')
 
 def main(data_path):
@@ -203,6 +297,9 @@ def main(data_path):
 
     print('Number of features: ', len(my_features))
     train, test, model = create_model(df, my_features)
+    
+    print("Coefficients: " + str(model.stages[-1].coefficients))
+    print("Intercept: " + str(model.stages[-1].intercept))
 
     # Evaluate model
     validate_model(model, test)
