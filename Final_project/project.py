@@ -10,7 +10,7 @@ from pyspark.sql.functions import *
 from pyspark import SparkContext
 from functools import reduce
 from pyspark.conf import SparkConf
-from pyspark.ml.feature import Normalizer, StringIndexer, VectorAssembler
+from pyspark.ml.feature import Normalizer, StringIndexer, VectorAssembler, OneHotEncoder
 from pyspark.ml import Pipeline
 from pyspark.ml.regression import LinearRegression
 from pyspark.ml.evaluation import RegressionEvaluator
@@ -30,18 +30,29 @@ def load_data(path):
                 .config(conf=conf) \
                 .getOrCreate()
 
-    # Read data
-    files = os.listdir(path)
-    files = [file for file in files if file.endswith('.bz2')] # filter bz2 files as this is how we download the data
-    dfs = []
-    for file in files:
-        # read them into df
-        df = spark.read.csv(path + "/" + files[0], header=True, sep=",")
-        dfs.append(df)
+    # If the dataframe is already in the local path, load it
+    if os.path.exists(path+"/my_df.csv"):
+        print('Loading data from local path')
+        df = spark.read.csv(path+"/my_df.csv", header=True, sep=",")
+        return df
+    
+    else:
+        print('Loading csv files from {}'.format(path)) 
+        # Read data
+        files = os.listdir(path)
+        files = [file for file in files if file.endswith('.bz2')] # filter bz2 files as this is how we download the data
+        dfs = []
+        for file in files:
+            # read them into df
+            df = spark.read.csv(path + "/" + files[0], header=True, sep=",")
+            dfs.append(df)
 
-    # Merge all dataframes into one
-    one_df = reduce(DataFrame.unionAll, dfs)
-    return one_df
+        # Merge all dataframes into one
+        one_df = reduce(DataFrame.unionAll, dfs)
+        
+        # Place the dataframe in a local path
+        one_df.write.csv(path+"/my_df.csv", header=True)
+        return one_df
 
 # Rename columns
 def edit_column_names(df):
@@ -106,21 +117,29 @@ def string_to_float(df):
 # Encode categorical features:
 def encode_categorical_features(df):
     """ 
-    Encode categorical features using StringIndexer. 
-    The output is a new column with the index of the category (0, 1, 2, ...)
+    Encode categorical features using StringIndexer and OneHotEncoder. 
+    The output is a new DataFrame with the specified columns encoded.
     
-    Param:
-    - df: spark dataframe
+    Params:
+    - df: Spark DataFrame
     
-    Return:
-    - df: spark dataframe with categorical features encoded
+    Returns:
+    - df_encoded: Spark DataFrame with categorical features encoded
     """
+    # StringIndexer
+    indexer = StringIndexer(inputCols=['airline_code', 'origin', 'dest',  'plane_number'],
+                            outputCols=['airline_index', 'origin_index', 'dest_index', 'plane_index'],
+                            handleInvalid="keep")
     
-    indexer = StringIndexer(inputCols=['airline_code', 'origin', 'dest', 'cancellation_code', 'plane_number'],
-                            outputCols=['airline_index', 'origin_index', 'dest_index', 'cancellation_index', 'plane_index'])
+    # OneHotEncoder
+    encoder = OneHotEncoder(inputCols=['airline_index', 'origin_index', 'dest_index',  'plane_index'],
+                            outputCols=['airline_encoded', 'origin_encoded', 'dest_encoded', 'plane_encoded'])
     
-    df = indexer.fit(df).transform(df)
-    return df
+    # Pipeline
+    pipeline = Pipeline(stages=[indexer, encoder])
+    df_encoded = pipeline.fit(df).transform(df)
+    
+    return df_encoded
 
 # Convert time to minutes:
 def convert_time_to_minutes(df):
@@ -162,9 +181,9 @@ def my_df(df):
     - df: spark dataframe with selected columns
     """
     df = df.select('year', 'month', 'day_of_month', 'day_of_week', 'actual_departure_time_mins',
- 					'scheduled_departure_time_mins', 'scheduled_arrival_time_mins', 'airline_index',
+ 					'scheduled_departure_time_mins', 'scheduled_arrival_time_mins', 'airline_encoded',
  					'flight_number', 'scheduled_flight_time_mins', 'departure_delay',
- 					'origin_index', 'dest_index', 'distance', 'cancelled',
+ 					'origin_encoded', 'dest_encoded', 'distance', 'cancelled',
  					'arrival_delay')
     return df
 
@@ -217,7 +236,7 @@ def standarize_dataframe(df):
     temp = encode_categorical_features(temp)
     temp = convert_time_to_minutes(temp)
     # Next 2 functions were defined after evaluating null values and whether
-    # to drop the entire variable or drop the rows with null values.
+    #   to drop the entire variable or drop the rows with null values.
     temp = my_df(temp)
     temp = drop_nulls(temp)
     
@@ -294,24 +313,28 @@ def main(data_path):
     
     # Load data into pyspark dataframe
     df_pyspark = load_data(data_folder)
-
+    print('\n###')
     print('Initial number of rows: ', df_pyspark.count())
     print('initial number of columns: ', len(df_pyspark.columns))
 
     # Process data
     df = standarize_dataframe(df_pyspark)
+    print('\n###')
     print('Final number of rows: ', df.count())
     print('Final number of columns: ', len(df.columns))
 
     # Create model
     my_features = ['year', 'month', 'day_of_month', 'day_of_week', 'actual_departure_time_mins',
-                    'scheduled_departure_time_mins', 'scheduled_arrival_time_mins', 'airline_index',
+                    'scheduled_departure_time_mins', 'scheduled_arrival_time_mins', 'airline_encoded',
                     'flight_number', 'scheduled_flight_time_mins', 'departure_delay',
-                    'origin_index', 'dest_index', 'distance']
+                    'origin_encoded', 'dest_encoded', 'distance']
+    
 
-    print('Number of features: ', len(my_features))
+    print('\n###')
+    print('Number of features selected: ', len(my_features))
     train, test, model = create_model(df, my_features)
     
+    print('\n###')
     print("Coefficients: " + str(model.stages[-1].coefficients))
     print("Intercept: " + str(model.stages[-1].intercept))
 
