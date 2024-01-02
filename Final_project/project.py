@@ -5,18 +5,18 @@ The model is evaluated using MAE, MSE, RMSE and R2.
 Usage:
     python project.py -d <path_to_data_folder>          | default: Final_project/data
 """
+import os
+from functools import reduce
+
+import click
+from pyspark.conf import SparkConf
+from pyspark.ml import Pipeline
+from pyspark.ml.evaluation import RegressionEvaluator
+from pyspark.ml.feature import (Normalizer, OneHotEncoder, StringIndexer,
+                                VectorAssembler)
+from pyspark.ml.regression import LinearRegression
 from pyspark.sql import *
 from pyspark.sql.functions import *
-from functools import reduce
-from pyspark.conf import SparkConf
-from pyspark.ml.feature import Normalizer, StringIndexer, VectorAssembler, OneHotEncoder
-from pyspark.ml import Pipeline
-from pyspark.ml.regression import LinearRegression
-from pyspark.ml.evaluation import RegressionEvaluator
-
-
-import click 
-import os
 
 ## Functions ######################################
 
