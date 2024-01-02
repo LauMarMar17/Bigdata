@@ -3,17 +3,17 @@ This script loads the data from the data folder, processes it and creates a line
 The model is evaluated using MAE, MSE, RMSE and R2.
 
 Usage:
-    python project.py -d <path_to_data_folder>
+    python project.py -d <path_to_data_folder>          | default: Final_project/data
 """
 from pyspark.sql import *
 from pyspark.sql.functions import *
-from pyspark import SparkContext
 from functools import reduce
 from pyspark.conf import SparkConf
 from pyspark.ml.feature import Normalizer, StringIndexer, VectorAssembler, OneHotEncoder
 from pyspark.ml import Pipeline
 from pyspark.ml.regression import LinearRegression
 from pyspark.ml.evaluation import RegressionEvaluator
+
 
 import click 
 import os
@@ -31,28 +31,39 @@ def load_data(path):
                 .getOrCreate()
 
     # If the dataframe is already in the local path, load it
-    if os.path.exists(path+"/my_df.csv"):
-        print('Loading data from local path')
-        df = spark.read.csv(path+"/my_df.csv", header=True, sep=",")
-        return df
+    if os.path.exists(path+"/my_df"):
+        # try to read it, but it is empty execute the else statement
+        try:
+            df = spark.read.csv(path+"/my_df", header=True, sep=",")
+            print('Loading data from local path')
+            return df
+        except:
+            print('Local path exists but the file is empty. Loading data from bz2 files')
+            pass
     
     else:
-        print('Loading csv files from {}'.format(path)) 
-        # Read data
-        files = os.listdir(path)
-        files = [file for file in files if file.endswith('.bz2')] # filter bz2 files as this is how we download the data
-        dfs = []
-        for file in files:
-            # read them into df
-            df = spark.read.csv(path + "/" + files[0], header=True, sep=",")
-            dfs.append(df)
+        # Handle FileNotFoundError: if this happens ask the user to introduce another path and try again
+        try: 
+            # Read data
+            files = os.listdir(path)
+            files = [file for file in files if file.endswith('.bz2')] # filter bz2 files as this is how we download the data
+            dfs = []
+            for file in files:
+                # read them into df
+                df = spark.read.csv(path + "/" + files[0], header=True, sep=",")
+                dfs.append(df)
 
-        # Merge all dataframes into one
-        one_df = reduce(DataFrame.unionAll, dfs)
+            # Merge all dataframes into one
+            one_df = reduce(DataFrame.unionAll, dfs)
+            print('Loading csv files from {}'.format(path))
+            
+            # Place the dataframe in a local path
+            one_df.write.csv(path+"/my_df", header=True)
+            return one_df
         
-        # Place the dataframe in a local path
-        one_df.write.csv(path+"/my_df.csv", header=True)
-        return one_df
+        except:
+            print('File not found. Please introduce another path')
+            return False            
 
 # Rename columns
 def edit_column_names(df):
@@ -266,7 +277,7 @@ def create_model(df, my_features):
     featureassmebler = VectorAssembler(inputCols=my_features, outputCol='features')
 	# Normlizer
     normalizer = Normalizer(inputCol="features", outputCol="features_norm", p=1.0)
-    # Linear Regression
+    # Linear Regression    
     lr = LinearRegression(featuresCol='features_norm', labelCol='arrival_delay', maxIter=10, regParam=0.3, elasticNetParam=0.8)
     # Pipeline
     pipeline = Pipeline(stages=[featureassmebler, normalizer, lr])
@@ -309,10 +320,14 @@ def main(data_path):
         data_folder = os.path.join(script_dir, "data")
     else:
         data_folder = data_path
-        click.echo('Loading data from {}'.format(data_folder))
+        click.echo('\n###\nData path selected: {}'.format(data_folder))
     
     # Load data into pyspark dataframe
     df_pyspark = load_data(data_folder)
+    while df_pyspark is False:
+        path = input('Path: ')
+        df_pyspark = load_data(path)
+        
     print('\n###')
     print('Initial number of rows: ', df_pyspark.count())
     print('initial number of columns: ', len(df_pyspark.columns))
