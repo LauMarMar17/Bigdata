@@ -397,7 +397,7 @@ def validate_model(model, test_data):
 
 
 @click.command()
-@click.option("--data_path", "-d", default="app/data", help="Path to the data folder")
+@click.option("--data_path", "-d", default=None, help="Path to the data folder")
 def main(data_path):
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
