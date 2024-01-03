@@ -3,7 +3,7 @@ This script loads the data from the data folder, processes it and creates a line
 The model is evaluated using MAE, MSE, RMSE and R2.
 
 Usage:
-    python project.py -d <path_to_data_folder>          | default: Final_project/data
+    python project.py -d <path_to_data_folder>          | default: app/data
 
 Requirements:
     specified in requirements.txt
@@ -43,12 +43,12 @@ def load_data(path):
     if os.path.exists(path + "/my_df"):
         # try to read it, but it is empty execute the else statement
         try:
+            print("###\nLoading data from local path: {}".format(path + "/my_df\n"))
             df = spark.read.csv(path + "/my_df", header=True, sep=",")
-            print("Loading data from local path")
             return df
         except:
             print(
-                "Local path exists but the file is empty. Loading data from bz2 files"
+                "###\nLocal path exists but the file is empty. Loading data from bz2 files\n"
             )
             pass
 
@@ -68,14 +68,14 @@ def load_data(path):
 
             # Merge all dataframes into one
             one_df = reduce(DataFrame.unionAll, dfs)
-            print("Loading csv files from {}".format(path))
+            print("###\nLoading csv files from {}\n".format(path))
 
             # Place the dataframe in a local path
             one_df.write.csv(path + "/my_df", header=True)
             return one_df
 
         except:
-            print("File not found. Please introduce another path")
+            print("###\nFile not found. Please introduce another path\n")
             return False
 
 
@@ -397,7 +397,7 @@ def validate_model(model, test_data):
 
 
 @click.command()
-@click.option("--data_path", "-d", default=None, help="Path to the data folder")
+@click.option("--data_path", "-d", default="app/data", help="Path to the data folder")
 def main(data_path):
     script_dir = os.path.dirname(os.path.abspath(__file__))
 

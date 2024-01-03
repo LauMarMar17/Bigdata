@@ -1,6 +1,6 @@
 # My files
 BigData/data/
-Final_project/data/
+app/data/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
